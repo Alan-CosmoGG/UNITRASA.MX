@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UNITRASA - Control de Rutas con Selección</title>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+/>
+<style>
+  /* Reset y básicos */
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background: #f5f7fa;
+    color: #333;
+  }
+  body {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #0078d4;
+    color: white;
+    padding: 1rem 1.5rem;
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.8rem;
+    z-index: 1000;
+    box-shadow: 0 3px 6px rgb(0 0 0 / 0.1);
+  }
+
+  /* Contenedor principal dividido */
+  #container {
+    display: flex;
+    flex: 1;
+    padding-top: 72px; /* espacio para header fijo */
+    height: calc(100vh - 72px);
+  }
+
+  /* Mapa al 50% ancho */
+  #map {
+    flex: 1 1 50%;
+    height: 100%;
+    border-right: 2px solid #ddd;
+  }
+
+  /* Panel derecho: formulario + historial + rutas activas */
+  #panelDerecho {
+    flex: 1 1 50%;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 1.5rem;
+    overflow-y: auto;
+    background: white;
+  }
+
+  /* Formulario */
+  form {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 1rem;
+    align-items: flex-end;
+    margin-bottom: 1.5rem;
+  }
+
+  form > div:nth-child(1),
+  form > div:nth-child(2) {
+    flex: 1 1 120px;
+  }
+  form > div:nth-child(3) {
+    flex: 1 1 250px;
+    display: flex;
+    flex-direction: column;
+  }
+  label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    color: #444;
+  }
+  select {
+    font-size: 1rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 6px;
+    border: 1.8px solid #ccc;
+    transition: border-color 0.25s ease;
+    width: 100%;
+  }
+  select:focus {
+    outline: none;
+    border-color: #0078d4;
+    box-shadow: 0 0 6px #0078d4aa;
+  }
+  button.add-stop {
+    padding: 0.45rem 0.75rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: none;
+    background: #2e8b57;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    min-width: 40px;
+  }
+  button.add-stop:hover {
+    background: #256645;
+  }
+  button.remove-stop {
+    padding: 0.3rem 0.6rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: none;
+    background: #d9534f;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  button.remove-stop:hover {
+    background: #b2322b;
+  }
+  button[type="submit"] {
+    padding: 0.45rem 1.2rem;
+    font-weight: 700;
+    border-radius: 6px;
+    border: none;
+    background: #0078d4;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    min-width: 140px;
+    height: 40px;
+  }
+  button[type="submit"]:hover {
+    background: #005ea2;
+  }
+  #botonesContenedor {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 0.6rem;
+  }
+  #paradasContainer {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* Tabla historial */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 3px 12px rgb(0 0 0 / 0.1);
+    margin-bottom: 1rem;
+  }
+  thead {
+    background: #0078d4;
+    color: white;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  th, td {
+    padding: 0.7rem 0.9rem;
+    text-align: center;
+    font-size: 0.9rem;
+  }
+  tbody tr:nth-child(even) {
+    background: #f9fafc;
+  }
+  tbody tr:hover {
+    background: #e6f0fc;
+  }
+
+  /* Lista rutas activas */
+  #listaRutasActivas {
+    max-height: 150px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fafafa;
+    padding: 0.5rem;
+  }
+  .rutaItem {
+    background: white;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.05);
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  .rutaItem:hover {
+    background-color: #e6f0fc;
+  }
+  .rutaItem.selected {
+    border-left: 5px solid #0078d4;
+    background-color: #d0e4fc;
+  }
+  .rutaDesc {
+    font-size: 0.85rem;
+    color: #444;
+    flex: 1;
+    padding-right: 1rem;
+  }
+  .btnVer {
+    background: #0078d4;
+    border: none;
+    color: white;
+    border-radius: 5px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  .btnVer:hover {
+    background: #005ea2;
+  }
+
+  /* Panel descripción ruta seleccionada */
+  #panelDescripcion {
+    background: #fff;
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 3px 12px rgb(0 0 0 / 0.1);
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: #222;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+<header>UNITRASA - Control de rutas en tiempo real</header>
+
+<div id="container">
+  <div id="map" role="region" aria-label="Mapa con rutas y ubicaciones"></div>
+
+  <div id="panelDerecho" role="region" aria-label="Panel de control y registro">
+    <form id="formulario" autocomplete="off" aria-label="Formulario para crear rutas">
+      <div>
+        <label for="origen">Origen:</label>
+        <select id="origen" required></select>
+      </div>
+
+      <div>
+        <label for="destino">Destino:</label>
+        <select id="destino" required></select>
+      </div>
+
+      <div>
+        <label>Paradas intermedias:</label>
+        <div id="botonesContenedor">
+          <button type="button" class="add-stop" id="agregarParada" title="Agregar parada intermedia">+</button>
+          <button type="submit" aria-label="Iniciar viaje y mostrar ruta">Iniciar Viaje</button>
+        </div>
+        <div id="paradasContainer" aria-live="polite" aria-label="Lista de paradas intermedias"></div>
+      </div>
+    </form>
+
+    <table aria-label="Historial de viajes UNITRASA" role="table" tabindex="0">
+      <thead>
+        <tr>
+          <th>Unidad</th>
+          <th>Origen</th>
+          <th>Destino</th>
+          <th>Paradas</th>
+          <th>Salida</th>
+          <th>Llegada Estimada</th>
+          <th>Duración</th>
+        </tr>
+      </thead>
+      <tbody id="tabla"></tbody>
+    </table>
+
+    <h3>Rutas activas</h3>
+    <div id="listaRutasActivas" role="list" aria-label="Lista de rutas activas"></div>
+
+    <div id="panelDescripcion" aria-live="polite" aria-atomic="true"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<script>
+  const apiKey = "5b3ce3597851110001cf624807a1d5c5f6c8482e99d92b7b0aee6db9";
+
+  const estados = {
+    "Aguascalientes": [21.8823, -102.2916],
+    "Baja California": [32.5149, -117.0382],
+    "Baja California Sur": [24.1426, -110.3128],
+    "Campeche": [19.845, -90.5234],
+    "Chiapas": [16.75, -93.1167],
+    "Chihuahua": [28.6353, -106.0889],
+    "Ciudad de México": [19.4326, -99.1332],
+    "Coahuila": [25.4383, -100.9736],
+    "Colima": [19.2433, -103.7241],
+    "Durango": [24.0277, -104.6532],
+    "Estado de México": [19.35, -99.75],
+    "Guanajuato": [21.0181, -101.2591],
+    "Guerrero": [17.5545, -99.5058],
+    "Hidalgo": [20.1011, -98.7591],
+    "Jalisco": [20.6597, -103.3496],
+    "Michoacán": [19.7008, -101.186],
+    "Morelos": [18.6813, -99.1013],
+    "Nayarit": [21.7514, -104.8455],
+    "Nuevo León": [25.6866, -100.3161],
+    "Oaxaca": [17.0732, -96.7266],
+    "Puebla": [19.0414, -98.2063],
+    "Querétaro": [20.5888, -100.3899],
+    "Quintana Roo": [18.51, -88.2961],
+    "San Luis Potosí": [22.1565, -100.9855],
+    "Sinaloa": [24.8091, -107.394],
+    "Sonora": [29.0729, -110.9559],
+    "Tabasco": [17.9869, -92.9303],
+    "Tamaulipas": [23.7369, -99.1411],
+    "Tlaxcala": [19.3139, -98.24],
+    "Veracruz": [19.1903, -96.1535],
+    "Yucatán": [20.9674, -89.5926],
+    "Zacatecas": [22.7709, -102.5832]
+  };
+
+  const selectOrigen = document.getElementById("origen");
+  const selectDestino = document.getElementById("destino");
+  const paradasContainer = document.getElementById("paradasContainer");
+  const tabla = document.getElementById("tabla");
+  const listaRutasActivas = document.getElementById("listaRutasActivas");
+  const panelDescripcion = document.getElementById("panelDescripcion");
+
+  let map = null;
+  let rutasActivas = [];
+  let marcadoresImportantes = [];
+  let rutaSeleccionadaIndex = null;
+
+  function llenarSelect(select) {
+    select.innerHTML = "";
+    for (const estado in estados) {
+      const option = document.createElement("option");
+      option.value = estado;
+      option.text = estado;
+      select.appendChild(option);
+    }
+  }
+  llenarSelect(selectOrigen);
+  llenarSelect(selectDestino);
+
+  document.getElementById("agregarParada").addEventListener("click", () => {
+    const div = document.createElement("div");
+    div.style.display = "flex";
+    div.style.alignItems = "center";
+    div.style.gap = "0.5rem";
+
+    const selectParada = document.createElement("select");
+    llenarSelect(selectParada);
+
+    const btnQuitar = document.createElement("button");
+    btnQuitar.type = "button";
+    btnQuitar.textContent = "✖";
+    btnQuitar.className = "remove-stop";
+    btnQuitar.title = "Quitar parada";
+    btnQuitar.addEventListener("click", () => div.remove());
+
+    div.appendChild(selectParada);
+    div.appendChild(btnQuitar);
+    paradasContainer.appendChild(div);
+  });
+
+  function initMap() {
+    map = L.map("map").setView([23, -102], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+  }
+  initMap();
+
+  let historial = JSON.parse(localStorage.getItem("unitrasaHistorial")) || [];
+  function renderHistorial() {
+    tabla.innerHTML = "";
+    for (const viaje of historial) {
+      tabla.innerHTML += `
+        <tr>
+          <td>${viaje.unidad}</td>
+          <td>${viaje.origen}</td>
+          <td>${viaje.destino}</td>
+          <td>${viaje.paradas.length > 0 ? viaje.paradas.join(", ") : "-"}</td>
+          <td>${new Date(viaje.salida).toLocaleString()}</td>
+          <td>${new Date(viaje.llegada).toLocaleString()}</td>
+          <td>${viaje.duracion}</td>
+        </tr>
+      `;
+    }
+  }
+  renderHistorial();
+
+  function construirCoordenadas(origen, paradas, destino) {
+    let coords = [];
+    coords.push([estados[origen][1], estados[origen][0]]);
+    for (const parada of paradas) {
+      coords.push([estados[parada][1], estados[parada][0]]);
+    }
+    coords.push([estados[destino][1], estados[destino][0]]);
+    return coords;
+  }
+
+  function ajustarZoom() {
+    if (rutasActivas.length === 0) return;
+    const group = L.featureGroup();
+    rutasActivas.forEach(({ polyline }) => group.addLayer(polyline));
+    map.fitBounds(group.getBounds().pad(0.2));
+  }
+
+  function limpiarMarcadoresImportantes() {
+    marcadoresImportantes.forEach(m => map.removeLayer(m));
+    marcadoresImportantes = [];
+  }
+
+  function crearMarcadorImportante(latlng, texto, color) {
+    const icon = L.divIcon({
+      html: `<div style="
+        background-color: ${color};
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        border: 2px solid white;
+        box-shadow: 0 0 5px ${color};
+        " title="${texto}"></div>`,
+      className: "",
+      iconSize: [16,16],
+      iconAnchor: [8,8]
+    });
+    const marker = L.marker(latlng, { icon });
+    marker.bindPopup(texto);
+    marker.addTo(map);
+    marcadoresImportantes.push(marker);
+  }
+
+  function crearIconoCamion() {
+    return L.icon({
+      iconUrl: "https://cdn-icons-png.flaticon.com/512/61/61207.png",
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+    });
+  }
+
+  function agregarRutaLista(viaje, index) {
+    const div = document.createElement("div");
+    div.className = "rutaItem";
+    div.tabIndex = 0;
+    div.setAttribute("role", "listitem");
+    div.setAttribute("aria-label", `Ruta ${viaje.unidad} desde ${viaje.origen} a ${viaje.destino}`);
+
+    div.innerHTML = `
+      <div class="rutaDesc">
+        <strong>${viaje.unidad}</strong>: ${viaje.origen} → ${viaje.destino} ${viaje.paradas.length > 0 ? "(Paradas: " + viaje.paradas.join(", ") + ")" : ""}
+      </div>
+      <button class="btnVer" aria-label="Ver detalles de la ruta ${viaje.unidad}">Detalles</button>
+    `;
+
+    div.querySelector(".btnVer").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      mostrarDescripcionRuta(index);
+    });
+
+    div.addEventListener("click", () => {
+      seleccionarRuta(index);
+    });
+
+    listaRutasActivas.appendChild(div);
+  }
+
+  function renderListaRutas() {
+    listaRutasActivas.innerHTML = "";
+    rutasActivas.forEach((_, i) => {
+      agregarRutaLista(historial[i], i);
+    });
+  }
+
+  function mostrarDescripcionRuta(index) {
+    const viaje = historial[index];
+    panelDescripcion.innerHTML = `
+      <h4>Detalles de la ruta ${viaje.unidad}</h4>
+      <p><strong>Origen:</strong> ${viaje.origen}</p>
+      <p><strong>Destino:</strong> ${viaje.destino}</p>
+      <p><strong>Paradas intermedias:</strong> ${viaje.paradas.length > 0 ? viaje.paradas.join(", ") : "Ninguna"}</p>
+      <p><strong>Salida:</strong> ${new Date(viaje.salida).toLocaleString()}</p>
+      <p><strong>Llegada estimada:</strong> ${new Date(viaje.llegada).toLocaleString()}</p>
+      <p><strong>Duración aproximada:</strong> ${viaje.duracion}</p>
+    `;
+  }
+
+  function seleccionarRuta(index) {
+    // Deseleccionar anterior
+    const anteriores = document.querySelectorAll(".rutaItem.selected");
+    anteriores.forEach(el => el.classList.remove("selected"));
+
+    // Seleccionar nuevo
+    const nuevo = listaRutasActivas.children[index];
+    if (nuevo) nuevo.classList.add("selected");
+    rutaSeleccionadaIndex = index;
+
+    // Cambiar colores de rutas (solo la seleccionada será resaltada)
+    rutasActivas.forEach(({ polyline }, i) => {
+      polyline.setStyle({ color: i === index ? "#ff6600" : getColor(i), weight: i === index ? 8 : 5, opacity: i === index ? 1 : 0.7 });
+    });
+
+    // Centrar mapa en la ruta seleccionada
+    if (rutasActivas[index]) {
+      const bounds = rutasActivas[index].polyline.getBounds();
+      map.fitBounds(bounds.pad(0.3));
+      // También centrar marcador
+      const { marcador } = rutasActivas[index];
+      if (marcador) {
+        marcador.openPopup();
+      }
+      mostrarDescripcionRuta(index);
+    }
+  }
+
+  document.getElementById("formulario").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const origen = selectOrigen.value;
+    const destino = selectDestino.value;
+
+    if (origen === destino) {
+      alert("El origen y destino deben ser diferentes.");
+      return;
+    }
+
+    const paradas = [];
+    paradasContainer.querySelectorAll("select").forEach((sel) => {
+      if (sel.value !== origen && sel.value !== destino) paradas.push(sel.value);
+    });
+
+    const coords = construirCoordenadas(origen, paradas, destino);
+
+    try {
+      const resp = await fetch(
+        `https://api.openrouteservice.org/v2/directions/driving-car/geojson`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: apiKey,
+          },
+          body: JSON.stringify({ coordinates: coords }),
+        }
+      );
+      if (!resp.ok) throw new Error(`Error HTTP ${resp.status}`);
+
+      const data = await resp.json();
+
+      const routeCoords = data.features[0].geometry.coordinates.map((c) => [
+        c[1],
+        c[0],
+      ]);
+
+      const distKm = (data.features[0].properties.summary.distance / 1000).toFixed(1);
+      const durMin = Math.round(data.features[0].properties.summary.duration / 60);
+      const durStr = `${Math.floor(durMin / 60)}h ${durMin % 60}m`;
+
+      const salida = new Date();
+      const llegada = new Date(salida.getTime() + durMin * 60000);
+
+      const unidad = "UN-" + Math.floor(Math.random() * 900 + 100);
+
+      const viaje = {
+        unidad,
+        origen,
+        destino,
+        paradas,
+        salida: salida.toISOString(),
+        llegada: llegada.toISOString(),
+        duracion: durStr,
+      };
+      historial.push(viaje);
+      localStorage.setItem("unitrasaHistorial", JSON.stringify(historial));
+      renderHistorial();
+
+      // Dibujar ruta
+      const polyline = L.polyline(routeCoords, { color: getColor(rutasActivas.length), weight: 5, opacity: 0.75 }).addTo(map);
+
+      // Crear marcador para el autobús al inicio
+      const marcador = L.marker(routeCoords[0], { icon: crearIconoCamion() }).addTo(map);
+
+      rutasActivas.push({
+        polyline,
+        marcador,
+        routeCoords,
+        idx: 0,
+      });
+
+      // Marcadores importantes: origen, paradas y destino
+      limpiarMarcadoresImportantes();
+      crearMarcadorImportante(estados[origen], "Origen: " + origen, "#0078d4");
+      paradas.forEach(p => crearMarcadorImportante(estados[p], "Parada: " + p, "#ffc107"));
+      crearMarcadorImportante(estados[destino], "Destino: " + destino, "#d9534f");
+
+      ajustarZoom();
+      renderListaRutas();
+      seleccionarRuta(rutasActivas.length - 1);
+    } catch (err) {
+      alert("Error al calcular la ruta: " + err.message);
+      console.error(err);
+    }
+  });
+
+  // Animación simple de los marcadores (autobuses)
+  setInterval(() => {
+    rutasActivas.forEach((ruta) => {
+      if (ruta.idx < ruta.routeCoords.length) {
+        ruta.marcador.setLatLng(ruta.routeCoords[ruta.idx]);
+        ruta.idx += 5;
+      }
+    });
+  }, 500);
+
+  function getColor(i) {
+    const colores = [
+      "#0078d4",
+      "#2e8b57",
+      "#ffc107",
+      "#d9534f",
+      "#6f42c1",
+      "#fd7e14",
+      "#20c997",
+      "#6610f2",
+    ];
+    return colores[i % colores.length];
+  }
+</script>
+</body>
+</html>
